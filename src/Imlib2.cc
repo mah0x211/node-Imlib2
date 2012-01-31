@@ -19,39 +19,39 @@ using namespace node;
 #define IsDefined(v) ( !v->IsNull() && !v->IsUndefined() )
 
 typedef enum {
-	NOERR = IMLIB_LOAD_ERROR_NONE,
-	FILE_DOES_NOT_EXIST = IMLIB_LOAD_ERROR_FILE_DOES_NOT_EXIST,
-	FILE_IS_DIRECTORY = IMLIB_LOAD_ERROR_FILE_IS_DIRECTORY,
-	PERMISSION_DENIED_TO_READ = IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_READ,
-	NO_LOADER_FOR_FILE_FORMAT = IMLIB_LOAD_ERROR_NO_LOADER_FOR_FILE_FORMAT,
-	PATH_TOO_LONG = IMLIB_LOAD_ERROR_PATH_TOO_LONG,
-	PATH_COMPONENT_NON_EXISTANT = IMLIB_LOAD_ERROR_PATH_COMPONENT_NON_EXISTANT,
-	PATH_COMPONENT_NOT_DIRECTORY = IMLIB_LOAD_ERROR_PATH_COMPONENT_NOT_DIRECTORY,
-	PATH_POINTS_OUTSIDE_ADDRESS_SPACE = IMLIB_LOAD_ERROR_PATH_POINTS_OUTSIDE_ADDRESS_SPACE,
-	TOO_MANY_SYMBOLIC_LINKS = IMLIB_LOAD_ERROR_TOO_MANY_SYMBOLIC_LINKS,
-	OUT_OF_MEMORY = IMLIB_LOAD_ERROR_OUT_OF_MEMORY,
-	OUT_OF_FILE_DESCRIPTORS = IMLIB_LOAD_ERROR_OUT_OF_FILE_DESCRIPTORS,
-	PERMISSION_DENIED_TO_WRITE = IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_WRITE,
-	OUT_OF_DISK_SPACE = IMLIB_LOAD_ERROR_OUT_OF_DISK_SPACE,
-	UNKNOWN = IMLIB_LOAD_ERROR_UNKNOWN,
-	FORMAT_UNACCEPTABLE = 1000
+    NOERR = IMLIB_LOAD_ERROR_NONE,
+    FILE_DOES_NOT_EXIST = IMLIB_LOAD_ERROR_FILE_DOES_NOT_EXIST,
+    FILE_IS_DIRECTORY = IMLIB_LOAD_ERROR_FILE_IS_DIRECTORY,
+    PERMISSION_DENIED_TO_READ = IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_READ,
+    NO_LOADER_FOR_FILE_FORMAT = IMLIB_LOAD_ERROR_NO_LOADER_FOR_FILE_FORMAT,
+    PATH_TOO_LONG = IMLIB_LOAD_ERROR_PATH_TOO_LONG,
+    PATH_COMPONENT_NON_EXISTANT = IMLIB_LOAD_ERROR_PATH_COMPONENT_NON_EXISTANT,
+    PATH_COMPONENT_NOT_DIRECTORY = IMLIB_LOAD_ERROR_PATH_COMPONENT_NOT_DIRECTORY,
+    PATH_POINTS_OUTSIDE_ADDRESS_SPACE = IMLIB_LOAD_ERROR_PATH_POINTS_OUTSIDE_ADDRESS_SPACE,
+    TOO_MANY_SYMBOLIC_LINKS = IMLIB_LOAD_ERROR_TOO_MANY_SYMBOLIC_LINKS,
+    OUT_OF_MEMORY = IMLIB_LOAD_ERROR_OUT_OF_MEMORY,
+    OUT_OF_FILE_DESCRIPTORS = IMLIB_LOAD_ERROR_OUT_OF_FILE_DESCRIPTORS,
+    PERMISSION_DENIED_TO_WRITE = IMLIB_LOAD_ERROR_PERMISSION_DENIED_TO_WRITE,
+    OUT_OF_DISK_SPACE = IMLIB_LOAD_ERROR_OUT_OF_DISK_SPACE,
+    UNKNOWN = IMLIB_LOAD_ERROR_UNKNOWN,
+    FORMAT_UNACCEPTABLE = 1000
 } ImageErrorType_e;
 
 typedef enum {
-	ALIGN_NONE,
-	ALIGN_LEFT = 1,
-	ALIGN_CENTER,
-	ALIGN_RIGHT,
-	
-	ALIGN_TOP = 1,
-	ALIGN_MIDDLE,
-	ALIGN_BOTTOM
+    ALIGN_NONE,
+    ALIGN_LEFT = 1,
+    ALIGN_CENTER,
+    ALIGN_RIGHT,
+
+    ALIGN_TOP = 1,
+    ALIGN_MIDDLE,
+    ALIGN_BOTTOM
 } ImageAlign_e;
 
 typedef struct {
-	int w;
-	int h;
-	double aspect;
+    int w;
+    int h;
+    double aspect;
 } ImageSize;
 
 
@@ -73,76 +73,76 @@ typedef struct {
 
 static const char *ImlibStrError( ImageErrorType_e err )
 {
-	const char *errstr = NULL;
-	
-	switch( err )
-	{
-		case NOERR:
-			errstr = "NONE";
-		break;
+    const char *errstr = NULL;
 
-		case FILE_DOES_NOT_EXIST:
-			errstr = "FILE_DOES_NOT_EXIST";
-		break;
+    switch( err )
+    {
+        case NOERR:
+            errstr = "NONE";
+        break;
 
-		case FILE_IS_DIRECTORY:
-			errstr = "FILE_IS_DIRECTORY";
-		break;
+        case FILE_DOES_NOT_EXIST:
+            errstr = "FILE_DOES_NOT_EXIST";
+        break;
 
-		case PERMISSION_DENIED_TO_READ:
-			errstr = "PERMISSION_DENIED_TO_READ";
-		break;
+        case FILE_IS_DIRECTORY:
+            errstr = "FILE_IS_DIRECTORY";
+        break;
 
-		case NO_LOADER_FOR_FILE_FORMAT:
-			errstr = "NO_LOADER_FOR_FILE_FORMAT";
-		break;
+        case PERMISSION_DENIED_TO_READ:
+            errstr = "PERMISSION_DENIED_TO_READ";
+        break;
 
-		case PATH_TOO_LONG:
-			errstr = "PATH_TOO_LONG";
-		break;
+        case NO_LOADER_FOR_FILE_FORMAT:
+            errstr = "NO_LOADER_FOR_FILE_FORMAT";
+        break;
 
-		case PATH_COMPONENT_NON_EXISTANT:
-			errstr = "PATH_COMPONENT_NON_EXISTANT";
-		break;
+        case PATH_TOO_LONG:
+            errstr = "PATH_TOO_LONG";
+        break;
 
-		case PATH_COMPONENT_NOT_DIRECTORY:
-			errstr = "PATH_COMPONENT_NOT_DIRECTORY";
-		break;
+        case PATH_COMPONENT_NON_EXISTANT:
+            errstr = "PATH_COMPONENT_NON_EXISTANT";
+        break;
 
-		case PATH_POINTS_OUTSIDE_ADDRESS_SPACE:
-			errstr = "PATH_POINTS_OUTSIDE_ADDRESS_SPACE";
-		break;
+        case PATH_COMPONENT_NOT_DIRECTORY:
+            errstr = "PATH_COMPONENT_NOT_DIRECTORY";
+        break;
 
-		case TOO_MANY_SYMBOLIC_LINKS:
-			errstr = "TOO_MANY_SYMBOLIC_LINKS";
-		break;
+        case PATH_POINTS_OUTSIDE_ADDRESS_SPACE:
+            errstr = "PATH_POINTS_OUTSIDE_ADDRESS_SPACE";
+        break;
 
-		case OUT_OF_MEMORY:
-			errstr = "OUT_OF_MEMORY";
-		break;
+        case TOO_MANY_SYMBOLIC_LINKS:
+            errstr = "TOO_MANY_SYMBOLIC_LINKS";
+        break;
 
-		case OUT_OF_FILE_DESCRIPTORS:
-			errstr = "OUT_OF_FILE_DESCRIPTORS";
-		break;
+        case OUT_OF_MEMORY:
+            errstr = "OUT_OF_MEMORY";
+        break;
 
-		case PERMISSION_DENIED_TO_WRITE:
-			errstr = "PERMISSION_DENIED_TO_WRITE";
-		break;
+        case OUT_OF_FILE_DESCRIPTORS:
+            errstr = "OUT_OF_FILE_DESCRIPTORS";
+        break;
 
-		case OUT_OF_DISK_SPACE:
-			errstr = "OUT_OF_DISK_SPACE";
-		break;
-		
-		case FORMAT_UNACCEPTABLE:
-			errstr = "UNACCEPTABLE_IMAGE_FORMAT";
-		break;
-		
-		case UNKNOWN:
-			errstr = "UNKNOWN";
-		break;
-	}
-	
-	return errstr;
+        case PERMISSION_DENIED_TO_WRITE:
+            errstr = "PERMISSION_DENIED_TO_WRITE";
+        break;
+
+        case OUT_OF_DISK_SPACE:
+            errstr = "OUT_OF_DISK_SPACE";
+        break;
+        
+        case FORMAT_UNACCEPTABLE:
+            errstr = "UNACCEPTABLE_IMAGE_FORMAT";
+        break;
+        
+        case UNKNOWN:
+            errstr = "UNKNOWN";
+        break;
+    }
+
+    return errstr;
 }
 
 
@@ -226,15 +226,15 @@ Imlib2::~Imlib2()
     if( format_to ){
         free( (void*)format_to );
     }
- 	if( imlib_context_get_image() )
-	{
-		if( imlib_get_cache_size() ){
-			imlib_free_image_and_decache();
-		}
-		else {
-			imlib_free_image();
-		}
-	}
+    if( imlib_context_get_image() )
+    {
+        if( imlib_get_cache_size() ){
+            imlib_free_image_and_decache();
+        }
+        else {
+            imlib_free_image();
+        }
+    }
 }
 
 
@@ -573,11 +573,11 @@ Handle<Value> Imlib2::fnCrop( const Arguments &argv )
     }
     else
     {
-		ctx->cropped = 1;
-		if( ctx->size.aspect > aspect )
+        ctx->cropped = 1;
+        if( ctx->size.aspect > aspect )
         {
-			ctx->crop.w = ctx->size.h * aspect;
-			ctx->crop.h = ctx->size.h;
+            ctx->crop.w = ctx->size.h * aspect;
+            ctx->crop.h = ctx->size.h;
             if( argc > 1 && argv[1]->IsNumber() )
             {
                 switch( argv[1]->Uint32Value() )
@@ -598,11 +598,11 @@ Handle<Value> Imlib2::fnCrop( const Arguments &argv )
                     break;
                 }
             }
-		}
-		else if( ctx->size.aspect < aspect )
+        }
+        else if( ctx->size.aspect < aspect )
         {
-			ctx->crop.h = ctx->size.w / aspect;
-			ctx->crop.w = ctx->size.w;
+            ctx->crop.h = ctx->size.w / aspect;
+            ctx->crop.w = ctx->size.w;
             if( argc > 1 && argv[1]->IsNumber() )
             {
                 switch( argv[1]->Uint32Value() )
@@ -623,16 +623,16 @@ Handle<Value> Imlib2::fnCrop( const Arguments &argv )
                     break;
                 }
             }
-		}
-		else {
-			ctx->cropped = 0;
-		}
-		
-		if( ctx->cropped ){
-			ctx->crop.aspect = (double)ctx->crop.w/(double)ctx->crop.h;
+        }
+        else {
+            ctx->cropped = 0;
+        }
+        
+        if( ctx->cropped ){
+            ctx->crop.aspect = (double)ctx->crop.w/(double)ctx->crop.h;
             retval = Boolean::New( true );
-		}
-	}
+        }
+    }
     return scope.Close( retval );
 }
 
@@ -659,9 +659,9 @@ Handle<Value> Imlib2::fnScale( const Arguments &argv )
         }
         
         ctx->scale = per;
-		ctx->resize.w = ( w / 100 ) * per;
-		ctx->resize.h = ( h / 100 ) * per;
-		ctx->resized = 1;
+        ctx->resize.w = ( w / 100 ) * per;
+        ctx->resize.h = ( h / 100 ) * per;
+        ctx->resized = 1;
     }
     
     return scope.Close( retval );
@@ -717,7 +717,7 @@ Handle<Value> Imlib2::fnResizeByWidth( const Arguments &argv )
         double w = ctx->size.w;
         double h = ctx->size.h;
         double aspect = ctx->size.aspect;
-	
+        
         // if cropped
         if( ctx->cropped ){
             w = ctx->crop.w;
@@ -751,7 +751,7 @@ Handle<Value> Imlib2::fnResizeByHeight( const Arguments &argv )
         double w = ctx->size.w;
         double h = ctx->size.h;
         double aspect = ctx->size.aspect;
-	
+        
         // if cropped
         if( ctx->cropped ){
             w = ctx->crop.w;
