@@ -54,28 +54,22 @@ typedef struct {
 	double aspect;
 } ImageSize;
 
-/*
+
+typedef enum ASYNC_TASK_BIT {
+    ASYNC_TASK_LOAD = 1 << 0,
+    ASYNC_TASK_SAVE = 1 << 1
+};
 typedef struct {
     void *ctx;
+    int task;
+    const char *errstr;
+    void *udata;
     // callback js function when async is true
     Persistent<Function> callback;
-    void *data;
+    Handle<Value> retval;
     eio_req *req;
 } Baton_t;
-*/
 
-static inline int CurrentTimestamp( char **str )
-{
-    struct timeval tv;
-    
-    // ???: needs lock/mutex?
-    if( 0 != gettimeofday( &tv, NULL ) || -1 == asprintf( str, "%lld%06d", tv.tv_sec, tv.tv_usec ) ){
-        *str = NULL;
-        return errno;
-    }
-    
-    return 0;
-}
 
 static const char *ImlibStrError( ImageErrorType_e err )
 {
@@ -180,6 +174,9 @@ class Imlib2 : public ObjectWrap
         
         // new
         static Handle<Value> New( const Arguments& argv );
+        Handle<Value> createContext( void );
+        Handle<Value> saveContext( const char *path );
+
         // setter/getter
         static Handle<Value> getFormat( Local<String> prop, const AccessorInfo &info );
         static void setFormat( Local<String> prop, Local<Value> val, const AccessorInfo &info );
@@ -197,11 +194,9 @@ class Imlib2 : public ObjectWrap
         static Handle<Value> fnResizeByHeight( const Arguments& argv );
         static Handle<Value> fnSave( const Arguments& argv );
         
-        /*/ render
-        static int renderBeginEIO( eio_req *req );
-        static int renderEndEIO( eio_req *req );
-        static Handle<Value> render( const Arguments &argv );
-        */
+        // thread task
+        static int beginEIO( eio_req *req );
+        static int endEIO( eio_req *req );
 };
 
 // MARK: @implements
@@ -219,7 +214,7 @@ Imlib2::Imlib2()
     size.w = crop.w = resize.w = 0;
     size.h = crop.h = resize.h = 0;
     size.aspect = crop.aspect = 1;
-//    mutex = NULL;
+    pthread_mutex_init( &mutex, NULL );
 }
 
 Imlib2::~Imlib2()
@@ -242,66 +237,264 @@ Imlib2::~Imlib2()
 	}
 }
 
+
+int Imlib2::beginEIO( eio_req *req )
+{
+    Baton_t *baton = static_cast<Baton_t*>( req->data );
+    Imlib2 *ctx = (Imlib2*)baton->ctx;
+    
+    // failed to lock mutex
+    if( pthread_mutex_lock( &ctx->mutex ) ){
+        baton->errstr = strerror(errno);
+    }
+    else
+    {
+        if( baton->task & ASYNC_TASK_LOAD ){
+            baton->retval = ctx->createContext();
+        }
+        else if( baton->task & ASYNC_TASK_SAVE ){
+            baton->retval = ctx->saveContext( (const char*)baton->udata );
+        }
+        
+        // failed to unlock mutex
+        if( pthread_mutex_unlock( &ctx->mutex ) ){
+            baton->errstr = strerror(errno);
+        }
+    }
+    
+    return 0;
+}
+
+int Imlib2::endEIO( eio_req *req )
+{
+    HandleScope scope;
+    Baton_t *baton = static_cast<Baton_t*>(req->data);
+    Imlib2 *ctx = (Imlib2*)baton->ctx;
+    int task = baton->task;
+    Local<Function> cb = Local<Function>::New( baton->callback );
+    Handle<Primitive> t = Undefined();
+    Local<Value> errstr = reinterpret_cast<Local<Value>&>(t);
+    
+    ev_unref(EV_DEFAULT_UC);
+    ctx->Unref();
+    
+    if( baton->errstr ){
+        errstr = Exception::Error( String::New( baton->errstr ) );
+    }
+    else if( IsDefined( baton->retval ) ){
+        errstr = Exception::Error( baton->retval->ToString() );
+    }
+    
+    // cleanup
+    baton->callback.Dispose();
+    if( baton->udata ){
+        free((void*)baton->udata);
+    }
+    delete baton;
+    
+    if( task & ASYNC_TASK_LOAD )
+    {
+        Local<Value> argv[] = {
+            reinterpret_cast<Local<Value>&>(errstr),
+            reinterpret_cast<Local<Value>&>(t)
+        };
+        
+        if( IsDefined( errstr ) ){
+            delete ctx;
+        }
+        // context
+        else {
+            argv[1] = reinterpret_cast<Local<Value>&>(ctx->handle_);
+        }
+        
+        TryCatch try_catch;
+        // call js function by callback function context
+        // !!!: which is better callback or Context::GetCurrent()->Global() context
+        cb->Call( cb, 2, argv );
+        if( try_catch.HasCaught() ){
+            FatalException(try_catch);
+        }
+    }
+    else if( task & ASYNC_TASK_SAVE )
+    {
+        Local<Value> argv[] = {
+            reinterpret_cast<Local<Value>&>(errstr)
+        };
+        
+        TryCatch try_catch;
+        // call js function by callback function context
+        cb->Call( ctx->handle_, 1, argv );
+        if( try_catch.HasCaught() ){
+            FatalException(try_catch);
+        }
+    }
+    
+    eio_cancel(req);
+    
+    return 0;
+}
+
 Handle<Value> Imlib2::New( const Arguments& argv )
 {
     HandleScope scope;
-    Handle<Value> retval = Null();
+    Handle<Value> retval = Undefined();
     const unsigned int argc = argv.Length();
+    bool callback = false;
     
-    if( argc && argv[0]->IsString() )
+    if( argc < 1 || 
+        !argv[0]->IsString() || !argv[0]->ToString()->Length() ||
+        ( argc > 1 && !( callback = argv[1]->IsFunction() ) ) ){
+        retval = ThrowException( Exception::TypeError( String::New( "new Imlib2( path_to_image:String, [callback:Function] )" ) ) );
+    }
+    else
     {
         Imlib2 *ctx = new Imlib2();
-        ImageErrorType_e imerr = NOERR;
         
-        ctx->img = imlib_load_image_with_error_return( *String::Utf8Value( argv[0] ), (Imlib_Load_Error*)&imerr );
-        if( imerr ){
-            delete ctx;
-            retval = ThrowException( Exception::Error( String::New( ImlibStrError(imerr) ) ) );
+        ctx->src = strdup( *String::Utf8Value( argv[0] ) );
+        
+        if( callback )
+        {
+            Baton_t *baton = new Baton_t();
+            
+            baton->task = ASYNC_TASK_LOAD;
+            baton->ctx = (void*)ctx;
+            baton->retval = Undefined();
+            baton->errstr = NULL;
+            baton->udata = NULL;
+            // detouch from GC
+            baton->callback = Persistent<Function>::New( Local<Function>::Cast( argv[1] ) );
+            ctx->Wrap( argv.This() );
+            ctx->Ref();
+            baton->req = eio_custom( beginEIO, EIO_PRI_DEFAULT, endEIO, baton );
+            ev_ref(EV_DEFAULT_UC);
         }
         else
         {
-            imlib_context_set_image( ctx->img );
-            ctx->attached = 1;
-
-            // check image format
-            ctx->format = imlib_image_format();
-            for( int i = 1; i < argc; i++ )
-            {
-                if( argv[i]->IsString() )
-                {
-                    if( strcmp( ctx->format, *String::Utf8Value( argv[i] ) ) ){
-                        imerr = FORMAT_UNACCEPTABLE;
-                        retval = ThrowException( Exception::Error( String::New( ImlibStrError(imerr) ) ) );
-                        break;
-                    }
-                }
-                else {
-                    imerr = UNKNOWN;
-                    retval = ThrowException( Exception::TypeError( String::New( "new Imlib2( path_to_image:String, accept_format:String, ... )" ) ) );
-                    break;
-                }
+            retval = ctx->createContext();
+            // failed
+            if( IsDefined( retval ) ){
+                retval = ThrowException( Exception::Error( retval->ToString() ) );
+                delete ctx;
             }
-            
-            if( retval->IsNull() ){
-                ctx->src = strdup( *String::Utf8Value( argv[0] ) );
-                ctx->size.w = ctx->crop.w = ctx->resize.w = imlib_image_get_width();
-                ctx->size.h = ctx->crop.h = ctx->resize.h = imlib_image_get_height();
-                ctx->size.aspect = ctx->crop.aspect = (double)ctx->size.w/(double)ctx->size.h;
-                pthread_mutex_init( &ctx->mutex, NULL );
+            else {
                 ctx->Wrap( argv.This() );
                 retval = argv.This();
             }
-            else {
-                delete ctx;
-            }
         }
-    }
-    else {
-        retval = ThrowException( Exception::TypeError( String::New( "new Imlib2( path_to_image:String )" ) ) );
     }
     
     return scope.Close( retval );
 }
+
+Handle<Value> Imlib2::createContext( void )
+{
+    Handle<Value> retval = Undefined();
+    ImageErrorType_e imerr = NOERR;
+        
+    img = imlib_load_image_with_error_return( src, (Imlib_Load_Error*)&imerr );
+    if( imerr ){
+        retval = String::New( ImlibStrError(imerr) );
+    }
+    else {
+        imlib_context_set_image( img );
+        attached = 1;
+        format = imlib_image_format();
+        size.w = crop.w = resize.w = imlib_image_get_width();
+        size.h = crop.h = resize.h = imlib_image_get_height();
+        size.aspect = crop.aspect = (double)size.w/(double)size.h;
+    }
+    
+    return retval;
+}
+
+Handle<Value> Imlib2::saveContext( const char *path )
+{
+    Handle<Value> retval = Undefined();
+    ImageErrorType_e imerr = NOERR;
+    Imlib_Image work = img, clone;
+    
+    // set current image
+    imlib_context_set_image( img );
+    // clone current image for backup
+    clone = imlib_clone_image();
+    
+    // crop
+    if( cropped ){
+        work = imlib_create_cropped_image( x, y, crop.w, crop.h );
+        imlib_free_image_and_decache();
+        imlib_context_set_image( work );
+    }
+    // resize
+    if( resized )
+    {
+        if( cropped ){
+            work = imlib_create_cropped_scaled_image( 0, 0, crop.w, crop.h, resize.w, resize.h );
+        }
+        else{
+            work = imlib_create_cropped_scaled_image( 0, 0, size.w, size.h, resize.w, resize.h );
+        }
+        imlib_free_image_and_decache();
+        imlib_context_set_image( work );
+    }
+    // quality
+    imlib_image_attach_data_value( "quality", NULL, quality, NULL );
+    // format
+    if( format_to ){
+        imlib_image_set_format( format_to );
+    }
+    
+    imlib_save_image_with_error_return( path, (ImlibLoadError*)&imerr );
+    imlib_free_image_and_decache();
+    img = clone;
+    imlib_context_set_image( img );
+    // failed
+    if( imerr ){
+        retval = String::New( ImlibStrError( imerr ) );
+    }
+    
+    return retval;
+}
+
+Handle<Value> Imlib2::fnSave( const Arguments &argv )
+{
+    HandleScope scope;
+    Imlib2 *ctx = ObjectUnwrap( Imlib2, argv.This() );
+    Handle<Value> retval = Undefined();
+    const int argc = argv.Length();
+    bool callback = false;
+    
+    if( argc < 1 || 
+        !argv[0]->IsString() || !argv[0]->ToString()->Length() ||
+        ( argc > 1 && !( callback = argv[1]->IsFunction() ) ) ){
+        retval = ThrowException( Exception::TypeError( String::New( "save( path_to_file:String, [callback:Function] )" ) ) );
+    }
+    else
+    {
+        if( callback )
+        {
+            Baton_t *baton = new Baton_t();
+            
+            baton->task = ASYNC_TASK_SAVE;
+            baton->ctx = (void*)ctx;
+            baton->retval = Undefined();
+            baton->errstr = NULL;
+            baton->udata = strdup( *String::Utf8Value( argv[0] ) );
+            // detouch from GC
+            baton->callback = Persistent<Function>::New( Local<Function>::Cast( argv[1] ) );
+            ctx->Ref();
+            baton->req = eio_custom( beginEIO, EIO_PRI_DEFAULT, endEIO, baton );
+            ev_ref(EV_DEFAULT_UC);
+        }
+        else
+        {
+            const char *path = strdup( *String::Utf8Value( argv[0] ) );
+            ctx->saveContext( path );
+            free((void*)path);
+        }
+    }
+    return scope.Close( retval );
+}
+
 
 Handle<Value> Imlib2::getFormat( Local<String>, const AccessorInfo &info )
 {
@@ -577,186 +770,6 @@ Handle<Value> Imlib2::fnResizeByHeight( const Arguments &argv )
 }
 
 
-Handle<Value> Imlib2::fnSave( const Arguments &argv )
-{
-    HandleScope scope;
-    Imlib2 *ctx = ObjectUnwrap( Imlib2, argv.This() );
-    Handle<Value> retval = Undefined();
-    const int argc = argv.Length();
-    
-    if( argc < 1 || !argv[0]->IsString() || !argv[0]->ToString()->Length() ){
-        retval = ThrowException( Exception::TypeError( String::New( "save( path_to_file:String )" ) ) );
-    }
-    else
-    {
-        ImageErrorType_e imerr = NOERR;
-        Imlib_Image img, clone;
-        const char *path = strdup( *String::Utf8Value( argv[0] ) );
-        
-        imlib_context_set_image( ctx->img );
-        // clone
-        clone = imlib_clone_image();
-        // crop
-        if( ctx->cropped ){
-            img = imlib_create_cropped_image( ctx->x, ctx->y, ctx->crop.w, ctx->crop.h );
-            imlib_free_image_and_decache();
-            ctx->img = img;
-            imlib_context_set_image( ctx->img );
-        }
-        // resize
-        if( ctx->resized )
-        {
-            if( ctx->cropped ){
-                img = imlib_create_cropped_scaled_image( 0, 0, ctx->crop.w, ctx->crop.h, ctx->resize.w, ctx->resize.h );
-            }
-            else{
-                img = imlib_create_cropped_scaled_image( 0, 0, ctx->size.w, ctx->size.h, ctx->resize.w, ctx->resize.h );
-            }
-            imlib_free_image_and_decache();
-            ctx->img = img;
-            imlib_context_set_image( ctx->img );
-        }
-        // quality
-        imlib_image_attach_data_value( "quality", NULL, ctx->quality, NULL );
-        // format
-        if( ctx->format_to ){
-            imlib_image_set_format( ctx->format_to );
-        }
-
-        imlib_save_image_with_error_return( path, (ImlibLoadError*)&imerr );
-        imlib_free_image_and_decache();
-        free( (void*)path );
-        
-        ctx->img = clone;
-        imlib_context_set_image( ctx->img );
-        // failed
-        if( imerr ){
-            retval = ThrowException( Exception::Error( String::New( ImlibStrError( imerr ) ) ) );
-        }
-    }
-    
-    return scope.Close( retval );
-}
-
-/*
-Handle<Value> Imlib2::save( const Arguments &argv )
-{
-    HandleScope scope;
-    Imlib2 *cs = ObjectUnwrap( Imlib2, argv.This() );
-    const int argc = argv.Length();
-    Handle<Value> retval = Undefined();
-    ParseCtx_t *ctx = NULL;
-    bool callback = false;
-    
-    // invalid arguments
-    if( !argv[0]->IsString() || ( 1 < argc && !( callback = argv[1]->IsFunction() ) ) ){
-        retval = ThrowException( Exception::TypeError( String::New( "save( path_to_file:String, [callback:Function] )" ) ) );
-    }
-    // save async
-    else if( callback )
-    {
-        Baton_t *baton = new Baton_t();
-        baton->ctx = (void*)ctx;
-        baton->data = NULL;
-        // detouch from GC
-        baton->callback = Persistent<Function>::New( Local<Function>::Cast( argv[1] ) );
-        cs->Ref();
-        baton->req = eio_custom( saveBeginEIO, EIO_PRI_DEFAULT, saveEndEIO, baton );
-        ev_ref(EV_DEFAULT_UC);
-    }
-    // save sync
-    else
-    {
-        char *estr = NULL;
-        
-        // save
-        if( ( estr = CHECK_NEOERR( cs_render( ctx->csp, &page, callbackRender ) ) ) ){
-            retval = ThrowException( Exception::Error( String::New( estr ) ) );
-            free(estr);
-        }
-        else {
-            retval = String::New( page.buf );
-        }
-    }
-    
-    return scope.Close( retval );
-}
-
-
-int Imlib2::saveBeginEIO( eio_req *req )
-{
-    Baton_t *baton = static_cast<Baton_t*>( req->data );
-    ParseCtx_t *ctx = (ParseCtx_t*)baton->ctx;
-    
-    if( pthread_mutex_lock( &ctx->mutex ) ){
-        baton->nerr = nerr_raise( NERR_SYSTEM, "Mutex lock failed: %s", strerror(errno) );
-    }
-    else
-    {
-        STRING page;
-        
-        string_init(&page);
-        if( STATUS_OK == ( baton->nerr = cs_render( ctx->csp, &page, callbackRender ) ) ){
-            baton->data = malloc( page.len+1 );
-            memcpy( (void*)baton->data, (void*)page.buf, page.len );
-            ((char*)baton->data)[page.len] = 0;
-        }
-        string_clear(&page);
-        errno = 0;
-        if( pthread_mutex_unlock( &ctx->mutex ) )
-        {
-            free( baton->data );
-            if( STATUS_OK != baton->nerr ){
-                free(baton->nerr);
-            }
-            baton->nerr = nerr_raise( NERR_LOCK, "Mutex unlock failed: %s", strerror(errno) );
-        }
-    }
-    
-    return 0;
-}
-
-int Imlib2::saveEndEIO( eio_req *req )
-{
-    HandleScope scope;
-    Baton_t *baton = static_cast<Baton_t*>(req->data);
-    ParseCtx_t *ctx = (ParseCtx_t*)baton->ctx;
-    Handle<Primitive> t = Undefined();
-    Local<Value> argv[] = {
-        reinterpret_cast<Local<Value>&>(t),
-        reinterpret_cast<Local<Value>&>(t)
-    };
-    
-    ev_unref(EV_DEFAULT_UC);
-    ctx->cs->Unref();
-    
-    if( STATUS_OK == baton->nerr ){
-        argv[1] = String::New( (char*)baton->data );
-        free( baton->data );
-    }
-    else {
-        const char *errstr = CHECK_NEOERR( baton->nerr );
-        baton->nerr = STATUS_OK;
-        argv[0] = Exception::Error( String::New( errstr ) );
-        free( (void*)errstr );
-    }
-    
-    TryCatch try_catch;
-    // call js function by callback function context
-    baton->callback->Call( baton->callback, 2, argv );
-    if( try_catch.HasCaught() ){
-        FatalException(try_catch);
-    }
-    // remove callback
-    baton->callback.Dispose();
-    delete baton;
-    
-    eio_cancel(req);
-    
-    return 0;
-}
-*/
-
 void Imlib2::Initialize( Handle<Object> target )
 {
     HandleScope scope;
@@ -764,6 +777,7 @@ void Imlib2::Initialize( Handle<Object> target )
     
     t->InstanceTemplate()->SetInternalFieldCount(1);
     t->SetClassName( String::NewSymbol("Imlib2") );
+    
     NODE_SET_PROTOTYPE_METHOD( t, "crop", fnCrop );
     NODE_SET_PROTOTYPE_METHOD( t, "scale", fnScale );
     NODE_SET_PROTOTYPE_METHOD( t, "resize", fnResize );
@@ -782,8 +796,11 @@ void Imlib2::Initialize( Handle<Object> target )
     target->Set( String::NewSymbol("Imlib2"), t->GetFunction() );
 }
 
-extern "C" {
-    static void init( Handle<Object> target ){
+
+extern "C" 
+{
+    static void init( Handle<Object> target )
+    {
         HandleScope scope;
         Imlib2::Initialize( target );
     }

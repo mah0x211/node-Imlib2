@@ -1,7 +1,7 @@
 {
     "name" : "Imlib2",
     "homepage": "http://github.com/mah0x211/node-Imlib2",
-    "version" : "0.0.1",
+    "version" : "0.0.2",
     "main" : "./index",
     "directories" : {
         "lib" : "./lib" 
